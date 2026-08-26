@@ -1,0 +1,29 @@
+{
+  "name": "json-environment-comparator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deep JSON comparison CLI for API responses from different environments",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "compare": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.34.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
