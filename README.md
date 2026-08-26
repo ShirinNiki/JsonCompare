@@ -2,6 +2,16 @@
 
 A TypeScript/Node.js command-line tool for deeply comparing API response files from two environments. It supports field selection, recursive wildcards, ignore rules, configurable time fields, keyed array matching, and console/JSON/Markdown reports.
 
+## Graphical interface
+
+Start the local web app:
+
+```bash
+npm run app
+```
+
+The interface opens in your browser and lets you paste, choose, or drag-and-drop two JSON files. Environment names are editable (for example `LOCAL` and `INT`). Comparison fields, ignored fields, time-field handling, and keyed-array rules are available below the two editors. Results can be downloaded as JSON or Markdown. All comparison work happens locally in the browser; JSON content is not uploaded.
+
 ## Requirements and installation
 
 - Node.js 20 or newer
