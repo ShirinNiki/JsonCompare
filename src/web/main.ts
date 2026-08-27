@@ -4,6 +4,9 @@ import type { ComparisonResult, Difference, JsonValue } from '../compare/types.j
 import configuredTimeFields from '../config/time-fields.json' with { type: 'json' };
 import { jsonReport } from '../report/jsonReporter.js';
 import { markdownReport } from '../report/markdownReporter.js';
+import { humanizeJsonPath } from './humanizePath.js';
+import { objectContextForPath, type ObjectContext } from './objectContext.js';
+import { alignJsonLines, prettyJsonLines, type AlignedDiffLine } from './lineDiff.js';
 
 type Side = 'local' | 'uat';
 type ReportFormat = 'json' | 'markdown';
@@ -117,7 +120,7 @@ byId('compare-button').addEventListener('click', () => {
   if (local === undefined || uat === undefined) { showInputError('Add valid JSON to both environments before comparing.'); return; }
   try {
     const result = compareJson(local, uat, { fields: readLines('fields'), ignoreFields: readLines('ignore-fields'), ignoreTime: byId<HTMLInputElement>('ignore-time').checked, timeFields: configuredTimeFields, arrayKeys: readLines('array-keys').map(parseArrayRule) });
-    renderResult(result);
+    renderResult(result, local, uat);
   } catch (error) { showInputError(error instanceof Error ? error.message : String(error)); }
 });
 
@@ -131,24 +134,65 @@ function showInputError(message: string): void {
   const result = byId('result'); result.hidden = false; result.innerHTML = `<div class="result-error"><b>Couldn’t compare yet</b><span>${escapeHtml(message)}</span></div>`; result.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function renderResult(result: ComparisonResult): void {
+function renderResult(result: ComparisonResult, local: JsonValue, uat: JsonValue): void {
   const section = byId('result');
   const localName = byId<HTMLInputElement>('local-name').value.trim() || 'LOCAL'; const uatName = byId<HTMLInputElement>('uat-name').value.trim() || 'INT'; const summary = result.summary;
   section.hidden = false;
-  section.innerHTML = `<div class="result-head"><div class="result-verdict ${result.equal ? 'equal' : 'different'}"><span>${result.equal ? '✓' : '≠'}</span><div><small>COMPARISON COMPLETE</small><h2>${result.equal ? 'Environments match' : `${summary.totalDifferences} ${summary.totalDifferences === 1 ? 'difference' : 'differences'} found`}</h2></div></div><div class="download-group"><select id="download-format"><option value="json">JSON report</option><option value="markdown">Markdown report</option></select><button id="download-button">Download</button></div></div>
+  section.innerHTML = `<div class="result-head"><div class="result-verdict ${result.equal ? 'equal' : 'different'}"><span>${result.equal ? '✓' : '≠'}</span><div><small>COMPARISON COMPLETE</small><h2>${result.equal ? 'Environments match' : `${summary.totalDifferences} ${summary.totalDifferences === 1 ? 'difference' : 'differences'} found`}</h2></div></div><div class="result-actions"><button id="side-by-side-button" class="diff-view-button"><span>⇄</span> Side-by-side diff</button><div class="download-group"><select id="download-format"><option value="json">JSON report</option><option value="markdown">Markdown report</option></select><button id="download-button">Download</button></div></div></div>
     <div class="metrics">${metric('Total', summary.totalDifferences)}${metric('Changed', summary.valuesChanged)}${metric('Missing', summary.missingFields)}${metric('Added', summary.itemsAdded)}${metric('Removed', summary.itemsRemoved)}${metric('Type mismatch', summary.typeMismatches)}</div>
-    ${result.differences.length ? differenceTable(result.differences, localName, uatName) : '<div class="empty-result"><span>✓</span><b>No differences under the selected rules.</b><small>These responses are safe to treat as equivalent.</small></div>'}`;
+    ${result.differences.length ? differenceTable(result.differences, localName, uatName, local, uat) : '<div class="empty-result"><span>✓</span><b>No differences under the selected rules.</b><small>These responses are safe to treat as equivalent.</small></div>'}`;
   byId('download-button').addEventListener('click', () => { const format = byId<HTMLSelectElement>('download-format').value as ReportFormat; const content = format === 'json' ? jsonReport(result) : markdownReport(result); download(content, `comparison-report.${format === 'json' ? 'json' : 'md'}`, format === 'json' ? 'application/json' : 'text/markdown'); });
+  byId('side-by-side-button').addEventListener('click', () => openSideBySideDiff(local, uat, localName, uatName));
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function metric(label: string, value: number): string { return `<div><strong>${value}</strong><span>${label}</span></div>`; }
-function differenceTable(differences: Difference[], localName: string, uatName: string): string {
-  return `<div class="table-wrap"><table><thead><tr><th>Path</th><th>${escapeHtml(localName)}</th><th>${escapeHtml(uatName)}</th><th>Difference</th></tr></thead><tbody>${differences.map(item => `<tr><td><code>${escapeHtml(item.path)}</code>${item.reason ? `<small>${escapeHtml(item.reason)}</small>` : ''}</td><td>${formatValue(item.local)}</td><td>${formatValue(item.uat)}</td><td><span class="diff-badge ${item.type}">${item.type}</span></td></tr>`).join('')}</tbody></table></div>`;
+function differenceTable(differences: Difference[], localName: string, uatName: string, local: JsonValue, uat: JsonValue): string {
+  return `<div class="table-wrap"><table><thead><tr><th>Path</th><th>${escapeHtml(localName)}</th><th>${escapeHtml(uatName)}</th><th>Difference</th></tr></thead><tbody>${differences.map(item => {
+    const friendlyPath = humanizeJsonPath(item.path);
+    const context = renderObjectContext(item.path, local, uat, localName, uatName);
+    return `<tr><td>${context}<div class="path-cell"><code>${escapeHtml(item.path)}</code><span class="path-help" tabindex="0" role="img" aria-label="Readable path: ${escapeHtml(friendlyPath)}" data-tooltip="${escapeHtml(friendlyPath)}">?</span></div>${item.reason ? `<small>${escapeHtml(item.reason)}</small>` : ''}</td><td>${formatValue(item.local)}</td><td>${formatValue(item.uat)}</td><td><span class="diff-badge ${item.type}">${item.type}</span></td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+function renderObjectContext(path: string, local: JsonValue, uat: JsonValue, localName: string, uatName: string): string {
+  const localContext = objectContextForPath(local, path);
+  const uatContext = objectContextForPath(uat, path);
+  if (!localContext && !uatContext) return '';
+  if (sameContext(localContext, uatContext)) return `<div class="object-context">${contextBadge(localContext!)}</div>`;
+  return `<div class="object-context split">${localContext ? contextBadge(localContext, localName) : ''}${uatContext ? contextBadge(uatContext, uatName) : ''}</div>`;
+}
+function sameContext(left: ObjectContext | undefined, right: ObjectContext | undefined): boolean {
+  return Boolean(left && right && left.key === right.key && JSON.stringify(left.value) === JSON.stringify(right.value));
+}
+function contextBadge(context: ObjectContext, environment?: string): string {
+  const rendered = contextValue(context.value);
+  return `<span class="context-badge">${environment ? `<em>${escapeHtml(environment)}</em>` : ''}<b>${escapeHtml(context.key)}</b>: ${escapeHtml(rendered)}</span>`;
+}
+function contextValue(value: JsonValue): string {
+  const rendered = typeof value === 'string' ? value : JSON.stringify(value);
+  return rendered.length > 48 ? `${rendered.slice(0, 47)}…` : rendered;
 }
 function formatValue(value: JsonValue | undefined): string {
   if (value === undefined) return '<span class="missing">&lt;missing&gt;</span>';
   const rendered = typeof value === 'string' ? value : JSON.stringify(value);
   return `<code title="${escapeHtml(rendered)}">${escapeHtml(rendered.length > 100 ? `${rendered.slice(0, 99)}…` : rendered)}</code>`;
+}
+function openSideBySideDiff(local: JsonValue, uat: JsonValue, localName: string, uatName: string): void {
+  document.querySelector<HTMLDialogElement>('.json-diff-dialog')?.remove();
+  const rows = alignJsonLines(prettyJsonLines(local), prettyJsonLines(uat));
+  const dialog = document.createElement('dialog');
+  dialog.className = 'json-diff-dialog';
+  dialog.setAttribute('aria-label', 'Side-by-side JSON difference');
+  dialog.innerHTML = `<div class="diff-page"><header class="diff-page-head"><div><small>RAW JSON COMPARISON</small><h2>Side-by-side diff</h2><p>Changed lines are aligned like a Git comparison.</p></div><div class="diff-page-tools"><div class="diff-legend"><span class="removed">− Removed / changed</span><span class="added">+ Added / changed</span></div><button id="close-diff-button" aria-label="Close side-by-side diff">×</button></div></header><div class="diff-column-head"><b>${escapeHtml(localName)}</b><b>${escapeHtml(uatName)}</b></div><div class="diff-code">${rows.map(renderDiffRow).join('')}</div></div>`;
+  document.body.append(dialog);
+  byId('close-diff-button').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  dialog.showModal();
+}
+function renderDiffRow(row: AlignedDiffLine): string {
+  const leftKind = row.kind === 'changed' ? 'removed' : row.kind;
+  const rightKind = row.kind === 'changed' ? 'added' : row.kind;
+  return `<div class="diff-code-row"><div class="diff-line ${leftKind}"><span class="diff-number">${row.leftNumber ?? ''}</span><span class="diff-sign">${row.left === undefined ? '' : leftKind === 'removed' ? '−' : ' '}</span><code>${row.left === undefined ? '' : escapeHtml(row.left)}</code></div><div class="diff-line ${rightKind}"><span class="diff-number">${row.rightNumber ?? ''}</span><span class="diff-sign">${row.right === undefined ? '' : rightKind === 'added' ? '+' : ' '}</span><code>${row.right === undefined ? '' : escapeHtml(row.right)}</code></div></div>`;
 }
 function download(content: string, fileName: string, type: string): void {
   const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([content], { type })); link.download = fileName; link.click(); URL.revokeObjectURL(link.href);
