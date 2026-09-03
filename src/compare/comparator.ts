@@ -17,6 +17,7 @@ export function compareJson(local: JsonValue, uat: JsonValue, rawOptions: Compar
     fields: [...new Set(rawOptions.fields ?? [])],
     ignoreFields: [...new Set(rawOptions.ignoreFields ?? [])],
     ignoreTime: rawOptions.ignoreTime ?? false,
+    keysOnly: rawOptions.keysOnly ?? false,
     timeFields: [...new Set(rawOptions.timeFields ?? [])],
     arrayKeys: dedupeArrayKeys(rawOptions.arrayKeys ?? []),
   };
@@ -50,6 +51,7 @@ export function compareJson(local: JsonValue, uat: JsonValue, rawOptions: Compar
     if (path && ignored(path)) return;
     if (left === MISSING) { add(path, left, right, pathHasArrayIndex(path) ? 'added' : 'missing-in-local'); return; }
     if (right === MISSING) { add(path, left, right, pathHasArrayIndex(path) ? 'removed' : 'missing-in-uat'); return; }
+    if (options.keysOnly) { compareKeys(left, right, path); return; }
     const leftType = jsonType(left);
     const rightType = jsonType(right);
     if (leftType !== rightType) { add(path, left, right, 'type-mismatch'); return; }
@@ -68,6 +70,25 @@ export function compareJson(local: JsonValue, uat: JsonValue, rawOptions: Compar
       return;
     }
     if (!Object.is(left, right)) add(path, left, right, 'changed');
+  }
+
+  function compareKeys(left: JsonValue, right: JsonValue, path: string): void {
+    if (Array.isArray(left) && Array.isArray(right)) {
+      const sharedLength = Math.min(left.length, right.length);
+      for (let index = 0; index < sharedLength; index += 1) compare(left[index]!, right[index]!, appendPath(path, index));
+      return;
+    }
+    const leftObject = jsonObject(left);
+    const rightObject = jsonObject(right);
+    if (!leftObject && !rightObject) return;
+    const keys = new Set([...Object.keys(leftObject ?? {}), ...Object.keys(rightObject ?? {})]);
+    for (const key of [...keys].sort()) {
+      compare(
+        leftObject && Object.prototype.hasOwnProperty.call(leftObject, key) ? leftObject[key]! : MISSING,
+        rightObject && Object.prototype.hasOwnProperty.call(rightObject, key) ? rightObject[key]! : MISSING,
+        appendPath(path, key),
+      );
+    }
   }
 
   function compareArrays(left: JsonValue[], right: JsonValue[], path: string): void {
@@ -122,10 +143,14 @@ export function compareJson(local: JsonValue, uat: JsonValue, rawOptions: Compar
     summary,
     differences,
     settings: {
-      fields: options.fields!, ignoreFields: options.ignoreFields!, ignoreTime: options.ignoreTime!,
+      fields: options.fields!, ignoreFields: options.ignoreFields!, ignoreTime: options.ignoreTime!, keysOnly: options.keysOnly!,
       timeFields: options.timeFields!, arrayKeys: options.arrayKeys!,
     },
   };
+}
+
+function jsonObject(value: JsonValue): Record<string, JsonValue> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
 }
 
 function pathHasArrayIndex(path: string): boolean {

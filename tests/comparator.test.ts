@@ -47,4 +47,28 @@ describe('comparator', () => {
     expect(result.differences.map(item => item.path)).toEqual(['clock.status']);
   });
   it('reports type mismatch', () => expect(compareJson({ a: 1 }, { a: '1' }).differences[0]?.type).toBe('type-mismatch'));
+  it('compares only key availability when requested', () => {
+    const result = compareJson(
+      { score: 1, games: [{ id: 1, live: true }, { id: 2, live: false }] },
+      { score: 99, games: [{ id: 50, live: false }] },
+      { keysOnly: true },
+    );
+    expect(result.equal).toBe(true);
+    expect(result.settings.keysOnly).toBe(true);
+  });
+  it('reports missing keys but ignores values and types in keys-only mode', () => {
+    const result = compareJson(
+      { game: { score: 1, status: 'live' } },
+      { game: { score: '1', extra: true } },
+      { keysOnly: true },
+    );
+    expect(result.differences.map(item => [item.path, item.type])).toEqual([
+      ['game.extra', 'missing-in-local'],
+      ['game.status', 'missing-in-uat'],
+    ]);
+  });
+  it('finds nested keys when the value on the other side is not an object', () => {
+    const result = compareJson({ game: { score: 1 } }, { game: 'unavailable' }, { keysOnly: true });
+    expect(result.differences.map(item => [item.path, item.type])).toEqual([['game.score', 'missing-in-uat']]);
+  });
 });

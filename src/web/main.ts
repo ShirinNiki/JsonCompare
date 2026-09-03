@@ -7,6 +7,7 @@ import { markdownReport } from '../report/markdownReporter.js';
 import { humanizeJsonPath } from './humanizePath.js';
 import { objectContextForPath, type ObjectContext } from './objectContext.js';
 import { alignJsonLines, prettyJsonLines, type AlignedDiffLine } from './lineDiff.js';
+import { cleanAndPrettifyJsonInput } from './cleanJson.js';
 
 type Side = 'local' | 'uat';
 type ReportFormat = 'json' | 'markdown';
@@ -41,7 +42,7 @@ app.innerHTML = `
         <div class="toggle-setting"><div><b>Ignore time fields</b><small>Skip configured timestamp and date leaves.</small></div><label class="switch"><input id="ignore-time" type="checkbox"><span></span></label></div>
       </div></div>
     </section>
-    <div class="action-row"><button id="compare-button" class="compare-button"><span>Compare environments</span><b>→</b></button><button id="clear-button" class="clear-button">Clear all</button></div>
+    <div class="action-row"><button id="compare-button" class="compare-button"><span>Compare JSON</span><b>→</b></button><button id="keys-button" class="keys-button"><span>Compare keys only</span><b>⌘</b></button><button id="clear-button" class="clear-button">Clear all</button></div>
     <section id="result" class="results" hidden aria-live="polite"></section>
   </main>
   <footer><span>JSON Compare</span><span>Built for reliable releases</span></footer>
@@ -50,7 +51,7 @@ app.innerHTML = `
 function editorCard(side: Side, caption: string, defaultName: string): string {
   return `<article class="editor-card" data-side="${side}">
     <div class="editor-head"><div><span class="env-dot ${side}"></span><span>${caption}</span></div><label class="environment-name"><span>Name</span><input id="${side}-name" value="${defaultName}" maxlength="24"></label></div>
-    <div class="editor-tools"><button class="tool-button active" data-mode="paste" data-side="${side}">Paste JSON</button><button class="tool-button" data-mode="file" data-side="${side}">Import file</button><span class="file-name" id="${side}-file-name">No file selected</span></div>
+    <div class="editor-tools"><button class="tool-button active" data-mode="paste" data-side="${side}">Paste JSON</button><button class="tool-button" data-mode="file" data-side="${side}">Import file</button><button class="clean-button" data-clean-side="${side}" title="Repair pasted artifacts and format the JSON">Clean &amp; Prettify</button><span class="file-name" id="${side}-file-name">No file selected</span></div>
     <div class="editor-wrap" data-drop-side="${side}"><div class="line-number">1</div><textarea id="${side}-json" spellcheck="false" aria-label="${caption} JSON" placeholder='{&#10;  "paste": "${defaultName.toLowerCase()} response here"&#10;}'></textarea><input id="${side}-file" type="file" accept=".json,application/json" hidden><div class="drop-overlay"><b>Drop JSON file here</b><span>Release to load it</span></div></div>
     <div class="editor-status" id="${side}-status"><span class="status-idle"></span> Waiting for JSON</div>
   </article>`;
@@ -66,6 +67,12 @@ const inputs = { local: byId<HTMLTextAreaElement>('local-json'), uat: byId<HTMLT
 document.querySelectorAll<HTMLButtonElement>('.tool-button').forEach(button => button.addEventListener('click', () => {
   const side = button.dataset.side as Side;
   if (button.dataset.mode === 'file') byId<HTMLInputElement>(`${side}-file`).click(); else inputs[side].focus();
+}));
+
+document.querySelectorAll<HTMLButtonElement>('.clean-button').forEach(button => button.addEventListener('click', () => {
+  const side = button.dataset.cleanSide as Side;
+  inputs[side].value = cleanAndPrettifyJsonInput(inputs[side].value);
+  validateEditor(side);
 }));
 
 (['local', 'uat'] as Side[]).forEach(side => {
@@ -115,14 +122,17 @@ byId('clear-button').addEventListener('click', () => {
   byId('result').hidden = true;
 });
 
-byId('compare-button').addEventListener('click', () => {
+byId('compare-button').addEventListener('click', () => compareInputs(false));
+byId('keys-button').addEventListener('click', () => compareInputs(true));
+
+function compareInputs(keysOnly: boolean): void {
   const local = validateEditor('local'); const uat = validateEditor('uat');
   if (local === undefined || uat === undefined) { showInputError('Add valid JSON to both environments before comparing.'); return; }
   try {
-    const result = compareJson(local, uat, { fields: readLines('fields'), ignoreFields: readLines('ignore-fields'), ignoreTime: byId<HTMLInputElement>('ignore-time').checked, timeFields: configuredTimeFields, arrayKeys: readLines('array-keys').map(parseArrayRule) });
+    const result = compareJson(local, uat, { fields: readLines('fields'), ignoreFields: readLines('ignore-fields'), ignoreTime: byId<HTMLInputElement>('ignore-time').checked, keysOnly, timeFields: configuredTimeFields, arrayKeys: readLines('array-keys').map(parseArrayRule) });
     renderResult(result, local, uat);
   } catch (error) { showInputError(error instanceof Error ? error.message : String(error)); }
-});
+}
 
 function readLines(id: string): string[] { return [...new Set(byId<HTMLTextAreaElement>(id).value.split(/\r?\n|,/).map(line => line.trim()).filter(Boolean))]; }
 function parseArrayRule(rule: string): { path: string; key: string } {

@@ -20,6 +20,7 @@ interface CliOptions {
   ignoreField: string[];
   ignoreFieldsFile?: string;
   ignoreTime: boolean;
+  keysOnly: boolean;
   arrayKey: string[];
   output?: string;
   format: Format;
@@ -39,6 +40,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--ignore-field <json-path>', 'Ignore this path after selection (repeatable)', collect, [])
     .option('--ignore-fields-file <path>', 'Read ignored paths from a line list or JSON array')
     .option('--ignore-time', 'Ignore configured time fields', false)
+    .option('--keys-only', 'Compare object-key availability and ignore values', false)
     .option('--array-key <path=key>', 'Match an array by a unique item key (repeatable)', collect, [])
     .option('--output <path>', 'Write the report to a file')
     .addOption(new Option('--format <format>', 'Report format').choices(['console', 'json', 'markdown']).default('console'))
@@ -53,6 +55,7 @@ export async function run(argv: string[]): Promise<number> {
       fields: [...new Set([...cli.field, ...selectedFromFile])],
       ignoreFields: [...new Set([...cli.ignoreField, ...ignoredFromFile])],
       ignoreTime: cli.ignoreTime,
+      keysOnly: cli.keysOnly,
       timeFields,
       arrayKeys: cli.arrayKey.map(parseArrayKey),
     };

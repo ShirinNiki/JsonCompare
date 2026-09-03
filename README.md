@@ -39,6 +39,7 @@ When no `--field` or `--fields-file` is supplied, every field is compared deeply
 | `--ignore-field <json-path>` | Ignore a path after field selection; repeatable |
 | `--ignore-fields-file <path>` | Read ignored paths from a file |
 | `--ignore-time` | Ignore configured time leaf fields |
+| `--keys-only` | Compare object-key availability and ignore values |
 | `--array-key <path=key>` | Match objects in an array by a unique key; repeatable |
 | `--format console\|json\|markdown` | Output format; defaults to `console` |
 | `--output <path>` | Save the report instead of printing it |
@@ -99,6 +100,10 @@ createdAt, updatedAt, lastUpdated
 ```
 
 Only the named leaf is ignored. Its parent object remains part of the comparison.
+
+## Keys-only comparison
+
+Use `--keys-only` (or select **Compare keys only** in the web app) to check whether object keys were added or removed. Values, value types, array order, and array length are ignored. When both arrays contain items, their corresponding item keys are checked.
 
 ## Keyed arrays
 

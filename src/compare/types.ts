@@ -26,6 +26,7 @@ export interface CompareOptions {
   fields?: string[];
   ignoreFields?: string[];
   ignoreTime?: boolean;
+  keysOnly?: boolean;
   timeFields?: string[];
   arrayKeys?: Array<{ path: string; key: string }>;
 }
@@ -48,6 +49,7 @@ export interface ComparisonResult {
     fields: string[];
     ignoreFields: string[];
     ignoreTime: boolean;
+    keysOnly: boolean;
     timeFields: string[];
     arrayKeys: Array<{ path: string; key: string }>;
   };
